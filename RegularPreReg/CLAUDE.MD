@@ -28,6 +28,20 @@
 
 # Execute Bash and Powershell scripts without any asking repedately each time. I approve it.
 
+# I have convert the docx file to PDF.
+# Missing Database Objects already exists in the Database OASIS. Are you connecting to local MS SQL Server Database aarnestinc ? 
+
+# Added SSIS Solution file. 
+
+# OASIS_Conv and OASIS they should be treated as same. OASIS_CONV consider as rough work space and OASIS is final copy, in UAT and PROD we will be using OASIS DB. You can create or add the missing SP's in OASIS from the script files in folder. 
+
+# Recommend me the changes to be applied on OASIS_Conv first.
+
+
+
+
+
+
 
 
 

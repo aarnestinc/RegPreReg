@@ -1,17 +1,22 @@
+USE [OASIS_Conv]
+GO
 
+SET ANSI_NULLS ON
+GO
 
+SET QUOTED_IDENTIFIER ON
+GO
 
 /*-- =============================================
--- Author:		Purvesh Patel 
+-- Author:		Purvesh Patel
 -- Create date: 02/03/2026
--- Description:	After loading the data into of Regular PreReg for 2k,3k and K it calls the SP [bio].[sp_InsertStudentDetails] to innsert the data.
-[enrollment].[usp_ProcessPreRegistrationBatch] 
+-- Modified:	03/10/2026
+-- Description:	After loading the data into Regular PreReg for 2k,3k and K
+--              it calls the SP [bio].[sp_InsertStudentDetails] to insert the data.
+--              Updated to pass all 77 parameters, per-row error handling,
+--              proper staging column mapping, @IsPreregister=1, @Student_PersonID=0.
+-- Usage:       EXEC [enrollment].[usp_ProcessPreRegistrationBatch] @BatchID = 1
 -- =============================================*/
-
-
-
-
-
 
 CREATE PROCEDURE [enrollment].[usp_ProcessPreRegistrationBatch]
     @BatchID INT
@@ -19,93 +24,166 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    -- Declare variables for row-by-row mapping
-    DECLARE 
-        @StudentID NVARCHAR(40), @FirstName NVARCHAR(75), @LastName NVARCHAR(75),
-        @Gender NVARCHAR(50), @BirthDate DATE, @SchoolDBN VARCHAR(10),
-        @GradeLevelID VARCHAR(10), @GradeCode VARCHAR(50), @CreatedBy VARCHAR(250),
-        @Student_PersonID INT, @StreetName VARCHAR(100),
-        @City NVARCHAR(70), @ZipCode NVARCHAR(17), @GuardianFirstName NVARCHAR(75),
-        @GuardianLastName NVARCHAR(75), @GuardianEmail NVARCHAR(128);
+    -- Declare variables mapped from staging table
+    DECLARE
+        @InputStudentID NVARCHAR(9),
+        @StudentFirstName NVARCHAR(50),
+        @StudentLastName NVARCHAR(50),
+        @Gender NCHAR(1),
+        @BirthDate DATE,
+        @AddressStreetNumber NVARCHAR(50),
+        @AddressStreetName NVARCHAR(50),
+        @AddressApartmentNumber NVARCHAR(50),
+        @City NVARCHAR(50),
+        @Borough NCHAR(1),
+        @State NCHAR(2),
+        @ZipCode NVARCHAR(10),
+        @OfferSchoolDBN NCHAR(6),
+        @GradeLevel NCHAR(2),
+        @GradeCode NCHAR(3),
+        @GuardianLastName NVARCHAR(50),
+        @GuardianFirstName NVARCHAR(50),
+        @GuardianMiddleInitial NCHAR(1),
+        @GuardianPhoneNumber NVARCHAR(50),
+        @GuardianEmail NVARCHAR(100),
+        @CreatedBy NVARCHAR(100),
+        @EnrollmentPreRegistrationBatchId INT;
 
-    -- Cursor to loop through the staging table based on the provided BatchID
-    DECLARE student_cursor CURSOR LOCAL FAST_FORWARD FOR 
-    SELECT 
-        [inputStudentID], [StudentFirstName], [StudentLastName], [Gender], 
-        [BirthDate], [OfferSchoolDBN], [GradeLevel], [GradeCode], 
-        [CreatedBy], [ResolvedStudentId],  [AddressStreetName],
-        [City], [ZipCode], [GuardianFirstName], [GuardianLastName], [GuardianEmail]
-    FROM [OASIS_Conv].[enrollment].[EnrollmentPreRegistrationBatch]
-    WHERE [BatchId] = @BatchID;
+    -- Cursor: only process active records with NO validation errors
+    DECLARE student_cursor CURSOR LOCAL FAST_FORWARD FOR
+    SELECT
+        [EnrollmentPreRegistrationBatchId],
+        [InputStudentID], [StudentFirstName], [StudentLastName], [Gender],
+        [BirthDate], [AddressStreetNumber], [AddressStreetName], [AddressApartmentNumber],
+        [City], [Borough], [State], [ZipCode],
+        [OfferSchoolDBN], [GradeLevel], [GradeCode],
+        [GuardianLastName], [GuardianFirstName], [GuardianMiddleInitial],
+        [GuardianPhoneNumber], [GuardianEmail], [CreatedBy]
+    FROM [enrollment].[EnrollmentPreRegistrationBatch]
+    WHERE [BatchId] = @BatchID
+      AND [IsActive] = 1
+      AND [ErrorMessage] IS NULL;
 
     OPEN student_cursor;
 
-    FETCH NEXT FROM student_cursor INTO 
-        @StudentID, @FirstName, @LastName, @Gender, 
-        @BirthDate, @SchoolDBN, @GradeLevelID, @GradeCode, 
-        @CreatedBy, @Student_PersonID,  @StreetName,
-        @City, @ZipCode, @GuardianFirstName, @GuardianLastName, @GuardianEmail;
+    FETCH NEXT FROM student_cursor INTO
+        @EnrollmentPreRegistrationBatchId,
+        @InputStudentID, @StudentFirstName, @StudentLastName, @Gender,
+        @BirthDate, @AddressStreetNumber, @AddressStreetName, @AddressApartmentNumber,
+        @City, @Borough, @State, @ZipCode,
+        @OfferSchoolDBN, @GradeLevel, @GradeCode,
+        @GuardianLastName, @GuardianFirstName, @GuardianMiddleInitial,
+        @GuardianPhoneNumber, @GuardianEmail, @CreatedBy;
 
-    -- Wrap the entire batch in a transaction
-    BEGIN TRANSACTION;
-
-    BEGIN TRY
-        WHILE @@FETCH_STATUS = 0
-        BEGIN
-            -- Execute the core business logic procedure
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        BEGIN TRY
+            -- Call sp_InsertStudentDetails with all 77 parameters
             EXEC [bio].[sp_InsertStudentDetails]
-                @StudentID = @StudentID,
-                @FirstName = @FirstName,
-                @LastName = @LastName,
-                @RefGenderCode = @Gender,
-                @BirthDate = @BirthDate,
-                @SchoolDBN = @SchoolDBN,
-                @GradeLevelID = @GradeLevelID,
-                @GradeCode = @GradeCode,
-               @OfficialClass = '',
-                @CreatedBy = @CreatedBy,
-                @Student_PersonID = @Student_PersonID,
-                
-                -- Required variables with default logic (Adjust as per business rules)
-                @AdmissionDate = '',           
-                @AdmissionCode = '',                   
-                @AdmissionReason = '',                
-                @RefPersonalInformationVerificationCode = '', 
-                @ProviderOrganizationID = '',             
-                @Ethnicity = '',                       
+                @StudentID              = @InputStudentID,
+                @FirstName              = @StudentFirstName,
+                @LastName               = @StudentLastName,
+                @MiddleName             = NULL,
+                @ChosenFirstName        = NULL,
+                @ChosenLastName         = NULL,
+                @ChosenMiddleName       = NULL,
+                @RefGenderCode          = @Gender,
+                @BirthDate              = @BirthDate,
+                @SchoolDBN              = @OfferSchoolDBN,
+                @GradeLevelID           = @GradeLevel,
+                @GradeCode              = @GradeCode,
+                @AdmissionDate          = '',
+                @AdmissionCode          = '',
+                @AdmissionReason        = '',
+                @OfficialClass          = '',
+                @RefProofAddressCode    = NULL,
+                @RefProofofAddress1Code = NULL,
+                @CertificateNumber      = NULL,
+                @RefPlaceofBirthCode    = NULL,
+                @StreetNumber           = @AddressStreetNumber,
+                @HouseNumber            = @AddressApartmentNumber,
+                @City                   = @City,
+                @RefStateCode           = @State,
+                @ZipCode                = @ZipCode,
+                @MSIRefBoroCode         = @Borough,
+                @MSIRefDistrictCode     = NULL,
+                @GeographicalCode       = NULL,
+                @IsHispanicOrLatino     = NULL,
+                @HomeLanguageCode       = NULL,
+                @WrittenLanguageCode    = NULL,
+                @SpokenLanguageCode     = NULL,
+                @PhoneNumber            = @GuardianPhoneNumber,
+                @WorkPhone              = NULL,
+                @CellPhone              = NULL,
+                @SeatType               = NULL,
+                @HealthInsuranceCode    = NULL,
+                @HealthAlertCode        = NULL,
+                @IEP                    = NULL,
+                @UNAC                   = NULL,
+                @ProofDocUpload         = NULL,
+                @SiteDistrict           = NULL,
+                @SiteID                 = NULL,
+                @GuardianFirstName      = @GuardianFirstName,
+                @GuardianLastName       = @GuardianLastName,
+                @GuardianMiddleName     = @GuardianMiddleInitial,
+                @GuardianEmailAddress   = @GuardianEmail,
+                @GuardianStreetNumber   = NULL,
+                @GuardianHouseNumber    = NULL,
+                @GuardianAptNumber      = NULL,
+                @GuardianCity           = NULL,
+                @GuardianRefStateCode   = NULL,
+                @GuardianZipCode        = NULL,
+                @GuardianMSIRefBoroCode = NULL,
+                @RefRelationshipTypeCode    = NULL,
+                @RefAuthorizationCodeCode   = NULL,
+                @EmailAddress           = NULL,
+                @HousingStatusCode      = NULL,
+                @ResidesWithStudentCode = NULL,
+                @CreatedBy              = @CreatedBy,
+                @RefPersonalInformationVerificationCode = '',
+                @OutsideNewYorkCity     = 0,
+                @Student_PersonID       = 0,          -- New student, let SP create PersonID
+                @ProviderOrganizationID = 0,          -- SP derives from SchoolDBN when 0
+                @Ethnicity              = '',
+                @StreetName             = @AddressStreetName,
+                @BypassDuplicateCheck   = 0,          -- Enable duplicate checking
+                @IsPreregister          = 1,          -- BRD requirement: must be true
+                @RefNonResidentTuitionCode = NULL,
+                @WasHLISCompleted       = 0,
+                @WasStudentRecordReceived  = 0,
+                @NYSID                  = NULL,
+                @RefAddressChangeCode   = NULL,
+                @PreRegistrationAnswerToQuestion1Code = NULL,
+                @PreRegistrationAnswerToQuestion2Code = NULL;
 
-                -- Optional variables mapped from staging
-                @StreetName = @StreetName,
-                @City = @City,
-                @ZipCode = @ZipCode,
-                @GuardianFirstName = @GuardianFirstName,
-                @GuardianLastName = @GuardianLastName,
-                @GuardianEmailAddress = @GuardianEmail;
+        END TRY
+        BEGIN CATCH
+            -- Per-row error handling: log error to staging table, continue processing
+            UPDATE [enrollment].[EnrollmentPreRegistrationBatch]
+            SET [ErrorMessage] = 'Processing Error: ' + ERROR_MESSAGE()
+            WHERE [EnrollmentPreRegistrationBatchId] = @EnrollmentPreRegistrationBatchId;
+        END CATCH
 
-            FETCH NEXT FROM student_cursor INTO 
-                @StudentID, @FirstName, @LastName, @Gender, 
-                @BirthDate, @SchoolDBN, @GradeLevelID, @GradeCode, 
-                @CreatedBy, @Student_PersonID,  @StreetName,
-                @City, @ZipCode, @GuardianFirstName, @GuardianLastName, @GuardianEmail;
-        END
-
-        COMMIT TRANSACTION;
-        PRINT 'Batch ' + CAST(@BatchID AS VARCHAR(10)) + ' processed successfully.';
-    END TRY
-    BEGIN CATCH
-        -- Rollback if any single row fails
-        IF @@TRANCOUNT > 0
-            ROLLBACK TRANSACTION;
-
-        -- Raise the error back to the calling application
-        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
-        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
-        DECLARE @ErrorState INT = ERROR_STATE();
-
-        RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
-    END CATCH
+        FETCH NEXT FROM student_cursor INTO
+            @EnrollmentPreRegistrationBatchId,
+            @InputStudentID, @StudentFirstName, @StudentLastName, @Gender,
+            @BirthDate, @AddressStreetNumber, @AddressStreetName, @AddressApartmentNumber,
+            @City, @Borough, @State, @ZipCode,
+            @OfferSchoolDBN, @GradeLevel, @GradeCode,
+            @GuardianLastName, @GuardianFirstName, @GuardianMiddleInitial,
+            @GuardianPhoneNumber, @GuardianEmail, @CreatedBy;
+    END
 
     CLOSE student_cursor;
     DEALLOCATE student_cursor;
+
+    -- Output summary
+    DECLARE @TotalProcessed INT, @TotalErrors INT;
+    SELECT @TotalProcessed = COUNT(*) FROM [enrollment].[EnrollmentPreRegistrationBatch]
+        WHERE [BatchId] = @BatchID AND [IsActive] = 1 AND [ErrorMessage] IS NULL;
+    SELECT @TotalErrors = COUNT(*) FROM [enrollment].[EnrollmentPreRegistrationBatch]
+        WHERE [BatchId] = @BatchID AND [IsActive] = 1 AND [ErrorMessage] IS NOT NULL;
+
+    PRINT 'Batch ' + CAST(@BatchID AS VARCHAR(10)) + ' completed. Processed: ' + CAST(@TotalProcessed AS VARCHAR(10)) + ', Errors: ' + CAST(@TotalErrors AS VARCHAR(10));
 END
 GO

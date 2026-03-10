@@ -1,66 +1,81 @@
-USE [OASIS]
+USE [OASIS_Conv]
 GO
 
-/****** Object:  StoredProcedure [enrollment].[usp_ValidatePreRegistrationData]    Script Date: 2/3/2026 8:27:25 AM ******/
 SET ANSI_NULLS ON
 GO
 
 SET QUOTED_IDENTIFIER ON
 GO
 
-
-
 /*-- =============================================
--- Author:		Purvesh Patel 
+-- Author:		Purvesh Patel
 -- Create date: 02/03/2026
+-- Modified:	03/10/2026
 -- Description:	Validate the business rules for Regular PreReg for 2k,3k and K.
-[enrollment].[usp_ValidateRegularPreRegistrationData] 
+--              Added @BatchID parameter, clear errors before re-validation,
+--              added OfferSchoolDBN and GradeCode checks.
+-- Usage:       EXEC [enrollment].[usp_ValidateRegularPreRegistrationData] @BatchID = 1
 -- =============================================*/
 
 CREATE PROCEDURE [enrollment].[usp_ValidateRegularPreRegistrationData]
+    @BatchID INT
 AS
 BEGIN
     SET NOCOUNT ON;
 
+    -- Clear previous error messages for this batch before re-validation
+    UPDATE [enrollment].[EnrollmentPreRegistrationBatch]
+    SET [ErrorMessage] = NULL
+    WHERE [BatchId] = @BatchID
+      AND [IsActive] = 1;
+
     -- Update the ErrorMessage for records that fail validation
-    UPDATE [OASIS_Conv].[enrollment].[EnrollmentPreRegistrationBatch]
-    SET 
-        [ErrorMessage] = ISNULL([ErrorMessage], '') + 
-            CASE 
-                WHEN ISNULL([StudentFirstName], '') = '' THEN 'Student First Name is missing; ' 
-                ELSE '' 
+    UPDATE [enrollment].[EnrollmentPreRegistrationBatch]
+    SET
+        [ErrorMessage] =
+            CASE
+                WHEN ISNULL([StudentFirstName], '') = '' THEN 'Student First Name is missing; '
+                ELSE ''
             END +
-            CASE 
-                WHEN ISNULL([StudentLastName], '') = '' THEN 'Student Last Name is missing; ' 
-                ELSE '' 
+            CASE
+                WHEN ISNULL([StudentLastName], '') = '' THEN 'Student Last Name is missing; '
+                ELSE ''
             END +
-            CASE 
-                WHEN [BirthDate] IS NULL THEN 'Birth Date is missing; ' 
-                ELSE '' 
+            CASE
+                WHEN [BirthDate] IS NULL THEN 'Birth Date is missing; '
+                ELSE ''
             END +
-            CASE 
-                WHEN ISNULL([Gender], '') = '' THEN 'Gender is missing; ' 
-                ELSE '' 
+            CASE
+                WHEN ISNULL([Gender], '') = '' THEN 'Gender is missing; '
+                ELSE ''
             END +
-            CASE 
-                WHEN ISNULL([GuardianFirstName], '') = '' THEN 'Guardian First Name is missing; ' 
-                ELSE '' 
+            CASE
+                WHEN ISNULL([GuardianFirstName], '') = '' THEN 'Guardian First Name is missing; '
+                ELSE ''
             END +
-            CASE 
-                WHEN ISNULL([GuardianLastName], '') = '' THEN 'Guardian Last Name is missing; ' 
-                ELSE '' 
+            CASE
+                WHEN ISNULL([GuardianLastName], '') = '' THEN 'Guardian Last Name is missing; '
+                ELSE ''
+            END +
+            CASE
+                WHEN ISNULL([OfferSchoolDBN], '') = '' THEN 'Offer School DBN is missing; '
+                ELSE ''
+            END +
+            CASE
+                WHEN ISNULL([GradeCode], '') = '' THEN 'Grade Code is missing; '
+                ELSE ''
             END
-        --[TransactionStatus] = 'Failed' -- Optional: Mark the row as failed
-    WHERE 
-        -- Filter to only check records that haven't been validated or have errors
-        (ISNULL([StudentFirstName], '') = ''
-        OR ISNULL([StudentLastName], '') = ''
-        OR [BirthDate] IS NULL
-        OR ISNULL([Gender], '') = ''
-        OR ISNULL([GuardianFirstName], '') = ''
-        OR ISNULL([GuardianLastName], '') = '')
-        AND [IsActive] = 1; -- Assuming you only want to validate active records
+    WHERE [BatchId] = @BatchID
+      AND [IsActive] = 1
+      AND (
+            ISNULL([StudentFirstName], '') = ''
+         OR ISNULL([StudentLastName], '') = ''
+         OR [BirthDate] IS NULL
+         OR ISNULL([Gender], '') = ''
+         OR ISNULL([GuardianFirstName], '') = ''
+         OR ISNULL([GuardianLastName], '') = ''
+         OR ISNULL([OfferSchoolDBN], '') = ''
+         OR ISNULL([GradeCode], '') = ''
+      );
 END
 GO
-
-
