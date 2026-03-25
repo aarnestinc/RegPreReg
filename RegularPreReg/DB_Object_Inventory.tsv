@@ -1,0 +1,43 @@
+Schema	TableName	ETL SP Name	Database
+enrollment	EnrollmentPreRegistrationBatch		OASIS_Conv
+bio	Student	[bio].[sp_InsertStudentDetails]	OASIS
+bio	StudentAdditionalDetail	[bio].[sp_InsertStudentDetails]	OASIS
+bio	StudentEthnicity	[bio].[sp_InsertStudentDetails]	OASIS
+bio	StudentAddress	[bio].[sp_InsertStudentDetails]	OASIS
+bio	Guardian	[bio].[sp_InsertStudentDetails]	OASIS
+bio	GuardianAddress	[bio].[sp_InsertStudentDetails]	OASIS
+bio	StudentGuardianRelationship	[bio].[sp_InsertStudentDetails]	OASIS
+enrollment	Enrollment	[bio].[sp_InsertStudentDetails]	OASIS
+stg	StudentDetails	[bio].[sp_InsertStudentDetails]	OASIS
+dbo	SPRunStats	[bio].[sp_InsertStudentDetails]	OASIS
+ref	RefGender		OASIS
+ref	RefBirthPlace		OASIS
+ref	RefProofOfBirth		OASIS
+ref	RefLanguage		OASIS
+ref	RefStudentStatus		OASIS
+ref	RefHealthInsuranceCoverage		OASIS
+ref	RefHealthCondition		OASIS
+ref	RefHealthAlertStatus		OASIS
+ref	RefEthnicity		OASIS
+ref	RefGeographicalCode		OASIS
+ref	RefState		OASIS
+ref	RefBorough		OASIS
+ref	RefDistrict		OASIS
+ref	RefAdmissionCode		OASIS
+ref	RefAdmissionReason		OASIS
+ref	RefGradeLevel		OASIS
+ref	RefGradeCode		OASIS
+ref	RefClass		OASIS
+ref	RefEnrollmentStatus		OASIS
+ref	RefAddressType		OASIS
+ref	RefMealCode		OASIS
+ref	RefRelationshipType		OASIS
+ref	RefAddressChangeCode		OASIS
+ref	RefNonResidentTuition		OASIS
+ref	RefPreRegistrationAnswerToQuestion1		OASIS
+ref	RefPreRegistrationAnswerToQuestion2		OASIS
+schooladmin	School		OASIS
+enrollment	usp_ValidateRegularPreRegistrationData		OASIS_Conv
+enrollment	usp_ProcessPreRegistrationBatch		OASIS_Conv
+bio	sp_InsertStudentDetails		OASIS
+dbo	fn_GetEthnicitiesFromATSCode		OASIS

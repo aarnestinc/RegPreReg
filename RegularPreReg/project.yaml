@@ -1,0 +1,293 @@
+# ==============================================================================
+# Project Configuration - Database Development Pipeline
+# Template Version: 1.0
+# ==============================================================================
+
+project:
+  name: "Regular Pre-Registration"
+  code: "RegPreReg"
+  description: "OASIS FDOS'25 Pre-Registrations (2K, 3K, K) - Load, validate, and process student pre-registration data into OASIS"
+  author: "Purvesh Patel"
+  created: "2026-02-01"
+  last_updated: "2026-03-22"
+  status: "Development"  # Draft | Development | UAT | Production
+  repo: "https://github.com/aarnestinc/RegPreReg.git"
+  local_path: "C:\\Users\\ppate\\RegPreReg\\RegularPreReg"
+
+# ==============================================================================
+# Server & Database Connections
+# ==============================================================================
+connections:
+  - name: "OASIS_Conv"
+    server: "aarnestinc"
+    database: "OASIS_Conv"
+    role: "staging"       # staging | destination | reference
+    description: "Staging/workspace database - rough work area"
+
+  - name: "OASIS"
+    server: "aarnestinc"
+    database: "OASIS"
+    role: "destination"
+    description: "Final destination database - used in UAT and PROD"
+
+# ==============================================================================
+# Source Files
+# ==============================================================================
+source_files:
+  format: "delimited"
+  delimiter: "|"
+  has_header: true
+  encoding: "UTF-8"
+  path: "SourceFiles"
+  archive_path: "SourceFiles\\Aarchive"
+  files:
+    - pattern: "QPKF_MAINROUND_3k_*.txt"
+      description: "3K pre-registration records"
+      approx_rows: 3000
+
+    - pattern: "QPKF_MAINROUND_pk_*.txt"
+      description: "Pre-K pre-registration records"
+      approx_rows: 26000
+
+  columns:
+    - { position: 1,  source_name: "match",              staging_column: "StudentId",              notes: "School match identifier" }
+    - { position: 2,  source_name: "osepogeneratedid",   staging_column: "InputStudentID",         notes: "External system ID (OSEPO)" }
+    - { position: 3,  source_name: "studentlastname",    staging_column: "StudentLastName",        notes: "" }
+    - { position: 4,  source_name: "studentfirstname",   staging_column: "StudentFirstName",       notes: "" }
+    - { position: 5,  source_name: "studentdateofbirth", staging_column: "BirthDate",              notes: "YYYYMMDD -> DATE conversion" }
+    - { position: 6,  source_name: "studentgender",      staging_column: "Gender",                 notes: "M/F (nchar 1)" }
+    - { position: 7,  source_name: "studenthousenumber", staging_column: "AddressStreetNumber",    notes: "" }
+    - { position: 8,  source_name: "studentstreetname",  staging_column: "AddressStreetName",      notes: "" }
+    - { position: 9,  source_name: "studentapt",         staging_column: "AddressApartmentNumber", notes: "" }
+    - { position: 10, source_name: "studentcity",        staging_column: "City",                   notes: "" }
+    - { position: 11, source_name: "studentborough",     staging_column: "Borough",                notes: "M/K/X/Q/R" }
+    - { position: 12, source_name: "studentstate",       staging_column: "State",                  notes: "NY" }
+    - { position: 13, source_name: "studentzip",         staging_column: "ZipCode",                notes: "" }
+    - { position: 14, source_name: "offerschooldbn",     staging_column: "OfferSchoolDBN",         notes: "e.g. 01M034" }
+    - { position: 15, source_name: "offergradecode",     staging_column: "GradeCode",              notes: "360=3K, 350=Pre-K" }
+    - { position: 16, source_name: "parentlastname",     staging_column: "GuardianLastName",       notes: "" }
+    - { position: 17, source_name: "parentfirstname",    staging_column: "GuardianFirstName",      notes: "" }
+
+  derived_columns:
+    - { staging_column: "BatchId",               source: "SSIS",    expression: "Per file/run" }
+    - { staging_column: "IsActive",              source: "SSIS",    expression: "1" }
+    - { staging_column: "CreatedBy",             source: "SSIS",    expression: "'SSIS_PreReg'" }
+    - { staging_column: "CreatedDate",           source: "SSIS",    expression: "GETDATE()" }
+    - { staging_column: "GradeLevel",            source: "derived", expression: "LEFT(offergradecode, 2)" }
+    - { staging_column: "BatchType",             source: "null",    expression: "" }
+    - { staging_column: "SourceFileName",        source: "null",    expression: "" }
+    - { staging_column: "SchoolYearId",          source: "null",    expression: "" }
+    - { staging_column: "GuardianMiddleInitial", source: "null",    expression: "" }
+    - { staging_column: "GuardianEmail",         source: "null",    expression: "" }
+    - { staging_column: "GuardianPhoneNumber",   source: "mapped",  expression: "parenttelephone" }
+    - { staging_column: "ErrorMessage",          source: "null",    expression: "" }
+
+# ==============================================================================
+# ETL / SSIS Configuration
+# ==============================================================================
+etl:
+  tool: "SSIS"
+  package: "RegularReg.dtsx"
+  ispac: "RegularPreRegistration.ispac"
+  path: "ETL"
+  connection_managers:
+    - { name: "FlatFile_3K",      type: "FlatFile", target: "QPKF_MAINROUND_3k_*.txt" }
+    - { name: "FlatFile_PK",      type: "FlatFile", target: "QPKF_MAINROUND_pk_*.txt" }
+    - { name: "OLEDB_OASIS_Conv", type: "OLE DB",   target: "aarnestinc.OASIS_Conv" }
+
+# ==============================================================================
+# Execution Pipeline
+# ==============================================================================
+pipeline:
+  - step: 1
+    name: "Data Ingestion"
+    type: "SSIS Data Flow Task"
+    description: "Load pipe-delimited source files into staging table via ForEach Loop"
+    source: "source_files"
+    destination: "OASIS_Conv.enrollment.EnrollmentPreRegistrationBatch"
+    notes: "17 source columns mapped to 30 staging columns with derived values"
+
+  - step: 2
+    name: "Validation"
+    type: "SSIS Execute SQL Task"
+    description: "Validate 8 required fields per batch row"
+    executes: "EXEC [OASIS_Conv].[enrollment].[usp_ValidateRegularPreRegistrationData] @BatchID = ?"
+    validated_fields:
+      - StudentFirstName
+      - StudentLastName
+      - BirthDate
+      - Gender
+      - GuardianFirstName
+      - GuardianLastName
+      - OfferSchoolDBN
+      - GradeCode
+
+  - step: 3
+    name: "Error Review"
+    type: "SSIS Execute SQL Task"
+    description: "Count validation errors; halt if threshold exceeded"
+    executes: "SELECT COUNT(*) FROM staging WHERE ErrorMessage IS NOT NULL"
+    decision: "IF ErrorCount > threshold THEN stop ELSE continue"
+    optional: true
+
+  - step: 4
+    name: "Process Batch"
+    type: "SSIS Execute SQL Task"
+    description: "Cursor-process valid rows into 10 OASIS destination tables"
+    executes: "EXEC [OASIS_Conv].[enrollment].[usp_ProcessPreRegistrationBatch] @BatchID = ?"
+    notes: "Calls sp_InsertStudentDetails with 77 parameters per row"
+
+  - step: 5
+    name: "Reconciliation"
+    type: "SSIS Execute SQL Task"
+    description: "Generate counts by status: total, successful, processing errors, validation errors"
+    executes: "SELECT counts grouped by error type from staging"
+
+  - step: 6
+    name: "Archive"
+    type: "SSIS File System Task"
+    description: "Move processed source files to archive folder"
+    source: "SourceFiles"
+    destination: "SourceFiles\\Aarchive"
+    optional: true
+
+# ==============================================================================
+# Database Objects
+# ==============================================================================
+db_objects:
+
+  # --- Staging ---
+  staging_tables:
+    - schema: "enrollment"
+      name: "EnrollmentPreRegistrationBatch"
+      database: "OASIS_Conv"
+      columns: 30
+      purpose: "Staging table - SSIS loads source data here"
+
+  # --- Stored Procedures ---
+  stored_procedures:
+    - schema: "enrollment"
+      name: "usp_ValidateRegularPreRegistrationData"
+      database: "OASIS_Conv"
+      parameters: ["@BatchID INT"]
+      purpose: "Validates 8 required fields per batch"
+      script: "Scripts\\usp_ValidateRegularPreRegistrationData.sql"
+
+    - schema: "enrollment"
+      name: "usp_ProcessPreRegistrationBatch"
+      database: "OASIS_Conv"
+      parameters: ["@BatchID INT"]
+      purpose: "Cursor-processes valid rows, calls sp_InsertStudentDetails"
+      script: "Scripts\\usp_ProcessPreRegistrationBatch.sql"
+
+    - schema: "bio"
+      name: "sp_InsertStudentDetails"
+      database: "OASIS"
+      parameters: ["77 parameters - see SP definition"]
+      purpose: "Core insert/update - creates student + enrollment + guardian records"
+      script: null  # Pre-existing in OASIS, not maintained in this repo
+
+  # --- Functions ---
+  functions:
+    - schema: "dbo"
+      name: "fn_GetEthnicitiesFromATSCode"
+      database: "OASIS"
+      type: "Table-Valued Function"
+      purpose: "Parses ATS ethnicity code into ethnicity IDs"
+
+  # --- Destination Tables (written by sp_InsertStudentDetails) ---
+  destination_tables:
+    - { schema: "bio",        name: "Student",                      database: "OASIS", identity: "StudentRecordId",                    purpose: "Core student record" }
+    - { schema: "bio",        name: "StudentAdditionalDetail",      database: "OASIS", identity: "StudentAdditionalDetailRecordId",    purpose: "IEP, meal code, health, special ed" }
+    - { schema: "bio",        name: "StudentEthnicity",             database: "OASIS", identity: "StudentEthnicityId",                 purpose: "Student ethnicity records" }
+    - { schema: "bio",        name: "StudentAddress",               database: "OASIS", identity: "StudentAddressId",                   purpose: "Student residential address" }
+    - { schema: "bio",        name: "Guardian",                     database: "OASIS", identity: "GuardianId",                         purpose: "Guardian/parent record" }
+    - { schema: "bio",        name: "GuardianAddress",              database: "OASIS", identity: "GuardianAddressId",                  purpose: "Guardian address" }
+    - { schema: "bio",        name: "StudentGuardianRelationship",  database: "OASIS", identity: "StudentGuardianRelationshipId",      purpose: "Links student to guardian" }
+    - { schema: "enrollment", name: "Enrollment",                   database: "OASIS", identity: "EnrollmentId",                       purpose: "Enrollment record (status PDR)" }
+    - { schema: "stg",        name: "StudentDetails",               database: "OASIS", identity: "StudentDetailsId",                   purpose: "Audit/staging log of SP calls" }
+    - { schema: "dbo",        name: "SPRunStats",                   database: "OASIS", identity: null,                                 purpose: "SP execution audit log" }
+
+  # --- Reference/Lookup Tables (read-only) ---
+  reference_tables:
+    - { schema: "ref",         name: "RefGender",                              database: "OASIS", lookup_key: "GenderCode -> GenderId" }
+    - { schema: "ref",         name: "RefBirthPlace",                          database: "OASIS", lookup_key: "BirthPlaceCode -> BirthPlaceId" }
+    - { schema: "ref",         name: "RefProofOfBirth",                        database: "OASIS", lookup_key: "ProofOfBirthCode -> ProofOfBirthId" }
+    - { schema: "ref",         name: "RefLanguage",                            database: "OASIS", lookup_key: "LanguageCode -> LanguageId" }
+    - { schema: "ref",         name: "RefStudentStatus",                       database: "OASIS", lookup_key: "StudentStatusCode -> StudentStatusId" }
+    - { schema: "ref",         name: "RefHealthInsuranceCoverage",             database: "OASIS", lookup_key: "HealthInsuranceCoverageCode" }
+    - { schema: "ref",         name: "RefHealthCondition",                     database: "OASIS", lookup_key: "HealthConditionCode" }
+    - { schema: "ref",         name: "RefHealthAlertStatus",                   database: "OASIS", lookup_key: "HealthAlertStatusCode" }
+    - { schema: "ref",         name: "RefEthnicity",                           database: "OASIS", lookup_key: "EthnicityCode -> EthnicityId" }
+    - { schema: "ref",         name: "RefGeographicalCode",                    database: "OASIS", lookup_key: "GeographicalCode -> GeographicalCodeId" }
+    - { schema: "ref",         name: "RefState",                               database: "OASIS", lookup_key: "StateCode -> StateId" }
+    - { schema: "ref",         name: "RefBorough",                             database: "OASIS", lookup_key: "BoroughCode -> BoroughId" }
+    - { schema: "ref",         name: "RefDistrict",                            database: "OASIS", lookup_key: "DistrictCode -> DistrictId" }
+    - { schema: "ref",         name: "RefAdmissionCode",                       database: "OASIS", lookup_key: "AdmissionCode -> AdmissionCodeId" }
+    - { schema: "ref",         name: "RefAdmissionReason",                     database: "OASIS", lookup_key: "AdmissionReasonCode -> AdmissionReasonId" }
+    - { schema: "ref",         name: "RefGradeLevel",                          database: "OASIS", lookup_key: "GradeLevelCode -> GradeLevelId" }
+    - { schema: "ref",         name: "RefGradeCode",                           database: "OASIS", lookup_key: "GradeCode -> GradeCodeId" }
+    - { schema: "ref",         name: "RefClass",                               database: "OASIS", lookup_key: "ClassCode + SchoolDBN -> ClassId" }
+    - { schema: "ref",         name: "RefEnrollmentStatus",                    database: "OASIS", lookup_key: "'PDR' -> Pre-Draft Registration" }
+    - { schema: "ref",         name: "RefAddressType",                         database: "OASIS", lookup_key: "'RESI' -> Residential" }
+    - { schema: "ref",         name: "RefMealCode",                            database: "OASIS", lookup_key: "Default meal code '5'" }
+    - { schema: "ref",         name: "RefRelationshipType",                    database: "OASIS", lookup_key: "Guardian relationship type" }
+    - { schema: "ref",         name: "RefAddressChangeCode",                   database: "OASIS", lookup_key: "Address change tracking" }
+    - { schema: "ref",         name: "RefNonResidentTuition",                  database: "OASIS", lookup_key: "Non-resident tuition code" }
+    - { schema: "ref",         name: "RefPreRegistrationAnswerToQuestion1",    database: "OASIS", lookup_key: "Pre-reg Q1 answer (passed as NULL)" }
+    - { schema: "ref",         name: "RefPreRegistrationAnswerToQuestion2",    database: "OASIS", lookup_key: "Pre-reg Q2 answer (passed as NULL)" }
+    - { schema: "schooladmin", name: "School",                                 database: "OASIS", lookup_key: "SchoolDBN -> SchoolId + ProviderOrganizationID" }
+
+# ==============================================================================
+# Key Parameters & Defaults (used by sp_InsertStudentDetails)
+# ==============================================================================
+sp_defaults:
+  - { parameter: "@Student_PersonID",         value: "0",             notes: "New student - SP creates PersonID" }
+  - { parameter: "@ProviderOrganizationID",   value: "0",             notes: "SP derives from SchoolDBN" }
+  - { parameter: "@IsPreregister",            value: "1",             notes: "Enrollment status = PDR" }
+  - { parameter: "@BypassDuplicateCheck",     value: "0",             notes: "Enable duplicate checking" }
+  - { parameter: "@CreatedBy",               value: "'SSIS_PreReg'", notes: "System user" }
+  - { parameter: "@OutsideNewYorkCity",       value: "0",             notes: "NYC students" }
+  - { parameter: "@WasHLISCompleted",         value: "0",             notes: "Default" }
+  - { parameter: "@WasStudentRecordReceived", value: "0",             notes: "Default" }
+
+# ==============================================================================
+# Scripts Inventory
+# ==============================================================================
+scripts:
+  path: "Scripts"
+  archive_path: "Scripts\\Archive"
+  files:
+    - { name: "usp_ValidateRegularPreRegistrationData.sql", purpose: "Validation SP source" }
+    - { name: "usp_ProcessPreRegistrationBatch.sql",        purpose: "Batch processing SP source" }
+    - { name: "Validation_PreRegistration.sql",             purpose: "10-section QA/validation queries" }
+    - { name: "SourceVsDestination_Comparison.sql",         purpose: "Source-to-destination comparison" }
+
+# ==============================================================================
+# Documentation
+# ==============================================================================
+docs:
+  files:
+    - { name: "ExecutionPlan.md",        purpose: "Full pipeline flow + DB object inventory" }
+    - { name: "DB_Object_Inventory.tsv", purpose: "TSV listing of all DB objects" }
+    - { name: "issues_and_fixes.md",     purpose: "Progress tracker and critical issues" }
+    - { name: "CLAUDE.MD",              purpose: "Claude Code project instructions" }
+  brd_path: "BRD"
+  brd_files:
+    - "OASIS - FDOS'25 Pre-Registrations BRD.docx"
+    - "BussRules.pdf"
+
+# ==============================================================================
+# Open Items / Questions for BA
+# ==============================================================================
+open_items:
+  - { id: 1,  question: "GradeLevel - what value maps here vs GradeCode (360/350)?",              status: "open" }
+  - { id: 2,  question: "@AdmissionDate - is 2026-09-01 the correct FDOS date?",                  status: "open" }
+  - { id: 3,  question: "@AdmissionCode and @AdmissionReason - what values for pre-reg?",          status: "open" }
+  - { id: 4,  question: "@OfficialClass - source or default?",                                     status: "open" }
+  - { id: 5,  question: "@RefPersonalInformationVerificationCode - 'B' per Call script, confirm?", status: "open" }
+  - { id: 6,  question: "@Ethnicity - no source data; default value?",                             status: "open" }
+  - { id: 7,  question: "SchoolYearId - what value for the staging table?",                        status: "open" }
+  - { id: 8,  question: "Duplicate handling - what behavior on duplicate?",                        status: "open" }
+  - { id: 9,  question: "API Integration - endpoints, auth, and payload specs?",                   status: "open" }
+  - { id: 10, question: "Are there returning students in source files, or all new?",               status: "open" }
