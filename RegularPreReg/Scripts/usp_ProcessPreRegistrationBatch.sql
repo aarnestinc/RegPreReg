@@ -92,7 +92,7 @@ BEGIN
                 @SchoolDBN              = @OfferSchoolDBN,
                 @GradeLevelID           = @GradeLevel,
                 @GradeCode              = @GradeCode,
-                @AdmissionDate          = '',
+                @AdmissionDate          = NULL,
                 @AdmissionCode          = '',
                 @AdmissionReason        = '',
                 @OfficialClass          = '',
